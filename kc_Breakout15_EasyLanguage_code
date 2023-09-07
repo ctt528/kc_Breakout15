@@ -1,0 +1,242 @@
+//IF 845 BAR IS A BEARFIB OR BULLFIB AND 2NDBAR(9AM) BREAKS IN THE SAME DIRECTION ----GREATER WIN %.
+
+{ (2min/12min/30min) breakout trade from open. 
+	@ Any market. Backtest which timeframe is best, and which market is best. Def need liquidity.
+		1. Plot high and low of first 12min bar. 
+		2. If breaks high, then LONG
+		3. Target is 22% of the 12min opening bars range. Stop is underneath the low of the 12min opening bar.	}
+
+{1min chart }
+
+
+{Can also make this into a 1-3 session.
+	Where price has not broken it's (30min) opening range from 830-9. Come 1pm it finally breaks: we want to capture that breakout.	}
+
+
+[intrabarordergeneration = True];
+Once clearprintlog;
+
+Input:
+		PercentOfRange_Stop(.10),	//If short, the stop is on the opening bar's high + this % of opening range bar. 
+		PercentOfRange(.25),	//If short, the target is on the opening bars low - this % of opening range bar.
+		MustBe#SD( 1 ),
+		ATRStarttime(0830),
+	 	ATREndtime(1500); 
+
+Vars:
+	intrabarpersist OpeningBarHigh(0),
+	intrabarpersist OpeningBarLow(0),
+	intrabarpersist OpeningBarRange(0),
+	intrabarpersist OpeningBarCandlebodyRange(0),
+	intrabarpersist OpeningBarUpperwick(0),
+	intrabarpersist OpeningBarBottomwick(0),
+	intrabarpersist bool HasTraded(True),
+	Count(0),
+	CandlesSinceEntry(0),
+	
+	min60Counter(0),
+	min60Array2SUM(0),
+	min60Array2AVG(0),
+	min60Counter2(0),
+	counter(0),
+	ii(0),
+	TruerangeSD(0),
+	TruerangeStandardDev(0),
+	iii(0),
+	variance(0),
+	pop(0),
+	sumArraySUM(0),
+	ATRLength(24);
+arrays:
+	min60Array[] (0),
+	min60Array2[] (0),
+	TRArray[] (0),
+	ATRArray[] (0),
+	DateArray[] (0),
+	SumArray[] (0);
+//////////////////////////////////////////////////////////////////////////////////////////////
+//ATR:
+If barstatus(1) = 2 then 
+Begin
+	
+	If time >= ATRStarttime and time <= ATREndtime then
+begin
+{if bartype = 1 and barinterval = 60 then //9,10,11,12,13,14,15}
+BEGIN
+	min60Counter = min60Counter + 1;
+	
+	Array_setmaxindex(min60Array, min60Counter); 
+	min60Array[min60Counter] = Truerange[0];	
+	//When counter is 96, remember to go back just 24. so from 72 to 96
+	if min60Counter > ATRLength then
+	begin
+		//Condition1 = true;
+		For ii = min60Counter downto (min60Counter-ATRLength)
+		Begin
+			If ii = min60counter then min60counter2 = 0;
+			min60counter2 = min60counter2 + 1;
+			
+			array_setmaxindex(min60Array2, 	min60counter2);
+			min60Array2[min60Counter2] = min60Array[ii]; 	
+			If min60Counter2 = ATRLength then	//once we have 24 true ranges, compute avg
+			Begin
+				min60Array2SUM = array_sum(min60Array2, 0, min60Counter2);
+				Min60Array2AVG = iff(min60Counter2 <> 0, min60Array2SUM / min60Counter2, 1);//compute avg of the 24 true ranges. 
+				
+				
+				//SD
+				counter = counter + 1;
+				array_setmaxindex(TRArray, counter);
+				TRArray[counter] = truerange;
+				array_setmaxindex(ATRArray, counter);
+				ATRArray[counter] = Min60Array2AVG;
+				array_setmaxindex(DateArray, counter);//just to check date
+				DateArray[counter] = Date;//just to check date
+				If counter > 100 then
+				Begin
+					For iii = counter downto (counter-100)
+					Begin
+						Array_setmaxindex(SumArray, counter);
+						SumArray[iii] = Power((TRArray[iii]-ATRArray[iii]),2);
+						sumArraySUM = array_sum(SumArray, iii, counter);
+						pop = counter - iii;
+						variance = iff(pop<>0, sumArraySUM / pop ,1);
+						TruerangeStandardDev = Squareroot(variance);
+		//Print(counter, "   ", iii,"   ",TRarray[iii],"  ", ATRArray[iii]);
+					end;
+				end;		
+
+			End;
+		End;
+	End;
+			
+END;
+end;//time-end		
+End;//barstatus	
+	//print(TruerangeStandardDev,"		", 	Min60Array2AVG, "  "," = ",truerange[1]); //must be TR[1] bc this computes every tick.
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+					
+
+	
+//initialize at the beginning of each new day.
+If time = 1200 then 
+Begin
+//if positionprofit(0) > 0 then print(OpeningBarRange);
+	OpeningBarHigh = 0;
+	OpeningBarLow = 0;
+	OpeningBarRange = 0;
+	
+End;
+
+	
+If time = 845 then
+Begin
+	If barstatus(1) = 2 then
+	Begin
+		If OpeningBarHigh = 0 then OpeningBarHigh = high;
+		If OpeningBarLow = 0 then OpeningBarLow = low;
+	
+		If high > OpeningBarHigh then OpeningBarHigh = high else OpeningBarHigh = OpeningBarHigh;
+		If low < OpeningBarLow then OpeningBarLow = low else OpeningBarLow = OpeningBarLow;
+		OpeningBarRange = OpeningBarHigh - OpeningBarLow;
+		if close >= open then OpeningBarUpperwick = (high - close) else OpeningBarUpperwick = (high - open);
+		if close >= open then OpeningBarbottomwick = (open - low) else OpeningBarbottomwick = (close - low);	
+		OpeningBarCandlebodyRange = truecandlebodyRange;
+value6 = iff(OpeningBarRange <> 0, (OpeningBarCandlebodyRange / OpeningBarRange), 1);
+		{If Min60Array2AVG > 0 and OpeningBarRange > (Min60Array2AVG + (TrueRangeStandardDev*MustBe#SD)) and  close < (High - (OpeningBarRange*.33)) and close > (High - (OpeningBarRange*.66))	//OpeningBarRange < (Min60Array2AVG then + (TrueRangeStandardDev*MustBe#SD))then
+		 then} 
+		 If Min60Array2AVG > 0 and OpeningBarRange > (Min60Array2AVG + (TrueRangeStandardDev*3)) and OpeningBarRange < (Min60Array2AVG + (TrueRangeStandardDev*4)) then HasTraded = False else HasTraded = true;
+//Print("date: ", date, "  time: ", time, "   ", OpeningBarHigh, "    ", openingbarlow);
+//Print(high, ", time: ", time, ", Date: ", date, "     OpeningbarLow: ", OpeningbarLow);
+	end;
+end; 
+
+//if date = 1200828 then Print(OpeningBarUpperwick, "dD");
+
+//Entries
+If time > 845 and time <= 1000 and marketposition = 0 and HasTraded = False then
+Begin
+	//If OpeningBarRange >= 0 then condition1 = true else condition1 = false; 
+	If close > OpeningBarHigh then 
+	Begin
+		if close < OpeningBarHigh + (OpeningBarRange*PercentOfRange) then Buy 1 contracts next bar at market; //Needs to have profit potential(Not right on top of target).
+		HasTraded = True;
+	end;
+	
+	If close < OpeningBarLow then 
+	Begin
+		if close > (OpeningBarLow - (OpeningBarRange*PercentOfRange)) then Sellshort 1 contracts next bar at market;
+		HasTraded = True;
+	End;
+//Print(close, "   ", time, "       ", date, "     ", openingbarhigh);
+End;
+
+//Stops and Targets
+If marketposition = 1 then
+Begin
+	//stoploss
+	sell("Legit stopp") 1 contracts next bar at OpeningBarLow - (OpeningBarRange*PercentOfRange_stop) stop; 
+	//target
+	Sell 1 contracts next bar at (OpeningBarHigh + (OpeningBarRange*PercentOfRange)) limit;
+	HasTraded = True;
+End;
+
+If marketposition = -1 then
+Begin
+	//stoploss
+	Buytocover("Legit stop") 1 contracts next bar at OpeningBarHigh + (OpeningBarRange*PercentOfRange_stop) stop; 
+	//target
+	Buytocover 1 contracts next bar at (OpeningBarLow - (OpeningBarRange*PercentOfRange)) limit;
+	HasTraded = True;
+End;
+
+If time = 1430 and marketposition <> 0 then 
+Begin
+	If marketposition = 1 then sell("Times Up") 1 contracts next bar at market;
+	If marketposition = -1 then buytocover("time is up") 1 contracts next bar at market;
+End;
+
+//Print(positionprofit(1)); //it is in dollar amount.
+
+//Bars Since Entry Counter
+If marketposition <> 0 then 
+begin
+	CandlesSinceEntry = CandlesSinceEntry + 1;
+End
+Else
+Begin
+	CandlesSinceEntry = 0;
+end;
+
+{//OpeningBarRange
+//Win or lose
+
+If marketposition = 1 then 
+Begin
+	If low < OpeningBarLow then 
+	begin
+		print("L");
+		CandlesSinceEntry = 0;
+	End;
+	If high > (OpeningBarHigh + (OpeningBarRange*.22)) then 
+	Begin
+		print("W");
+		CandlesSinceEntry = 0;
+	End;
+End;
+
+If Marketposition = -1 then
+Begin
+	If high > OpeningBarHigh then 
+	Begin
+		print("L");
+		CandlesSinceEntry = 0;
+	End;
+	If Low < (OpeningBarLow - (OpeningBarRange*.22)) then 
+	Begin
+		print("W");
+		CandlesSinceEntry = 0;
+	End;
+End;	}
